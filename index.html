@@ -95,6 +95,11 @@
             background-color: var(--primary-color);
             color: white;
         }
+        .filter-btn.active {
+            background-color: var(--primary-color);
+            opacity: 0.9;
+            transform: scale(0.98);
+        }
         .clear-completed-btn {
             margin-top: 20px;
             padding: 10px;
@@ -124,6 +129,11 @@
         }
         .counter-btn.all {
             background-color: #4CAF50;
+        }
+        .counter-btn.active {
+            background-color: var(--primary-color);
+            opacity: 0.9;
+            transform: scale(0.98);
         }
         .todo-list {
             list-style: none;
@@ -178,6 +188,15 @@
             .add-btn {
                 width: 100%;
             }
+            .task-counter {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .counter-btn {
+                flex: 1 1 40%;
+                margin: 5px;
+                text-align: center;
+            }
         }
     </style>
 </head>
@@ -222,6 +241,7 @@
         const themeToggle = document.getElementById('themeToggle');
         const clearCompletedBtn = document.getElementById('clearCompletedBtn');
         const filterButtons = document.querySelectorAll('.filter-btn');
+        const counterButtons = document.querySelectorAll('.counter-btn');
 
         const allCounter = document.getElementById('allCounter');
         const highCounter = document.getElementById('highCounter');
@@ -231,10 +251,13 @@
 
         let todos = JSON.parse(localStorage.getItem('todos')) || [];
         let currentTheme = localStorage.getItem('theme') || 'light';
+        let currentFilter = 'all';
 
         // Initialize theme
         document.documentElement.setAttribute('data-theme', currentTheme);
         themeToggle.innerHTML = currentTheme === 'dark' ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+        themeToggle.setAttribute('aria-label', 'Toggle dark mode');
+        clearCompletedBtn.setAttribute('aria-label', 'Clear completed tasks');
 
         function saveTodos() {
             localStorage.setItem('todos', JSON.stringify(todos));
@@ -254,11 +277,13 @@
             document.getElementById('completedCount').textContent = completedTasks;
         }
 
-        function renderTodos(filter = 'all') {
+        function renderTodos() {
             todoList.innerHTML = '';
-            const filteredTodos = filter === 'all' 
-                ? todos 
-                : todos.filter(todo => todo.priority === filter);
+            const filteredTodos = todos.filter(todo => {
+                if (currentFilter === 'all') return true;
+                if (currentFilter === 'completed') return todo.completed;
+                return todo.priority === currentFilter;
+            });
 
             filteredTodos.forEach((todo, index) => {
                 const li = document.createElement('li');
@@ -280,6 +305,15 @@
             });
 
             updateTaskCounter();
+
+            // Update active states
+            document.querySelectorAll('.filter-btn, .counter-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.filter === currentFilter || 
+                   (btn.id.includes(currentFilter) && currentFilter !== 'all')) {
+                    btn.classList.add('active');
+                }
+            });
         }
 
         function addTodo(text, priority) {
@@ -337,19 +371,19 @@
                 todoTextElement.replaceWith(input);
                 input.focus();
 
-                input.addEventListener('blur', () => {
+                function handleEditBlur(input, index, todoTextElement) {
                     const newText = input.value.trim();
                     if (newText) {
                         editTodo(index, newText);
                     } else {
                         input.replaceWith(todoTextElement);
                     }
-                });
+                }
 
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        input.blur();
-                    }
+                input.addEventListener('blur', () => handleEditBlur(input, index, todoTextElement));
+                input.addEventListener('keyup', (e) => {
+                    if (e.key === 'Enter') handleEditBlur(input, index, todoTextElement);
+                    if (e.key === 'Escape') input.replaceWith(todoTextElement);
                 });
             }
 
@@ -361,8 +395,17 @@
 
         filterButtons.forEach(button => {
             button.addEventListener('click', () => {
-                const filter = button.dataset.filter;
-                renderTodos(filter);
+                currentFilter = button.dataset.filter;
+                renderTodos();
+            });
+        });
+
+        counterButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                currentFilter = button.id.replace('Counter', '').toLowerCase();
+                if (currentFilter === 'all') currentFilter = 'all';
+                if (currentFilter === 'completed') currentFilter = 'completed';
+                renderTodos();
             });
         });
 
@@ -386,6 +429,12 @@
 
         todoList.addEventListener('dragend', (e) => {
             e.target.classList.remove('dragging');
+            const newOrder = Array.from(todoList.children).map(child => 
+                parseInt(child.dataset.index)
+            );
+            todos = newOrder.map(index => todos[index]);
+            saveTodos();
+            renderTodos();
         });
 
         todoList.addEventListener('dragover', (e) => {
