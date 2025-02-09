@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Todo List</title>
+    <title>Smart Todo List Pro</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
@@ -46,6 +46,28 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 30px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            cursor: pointer;
+        }
+
+        .filter-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
         }
 
         .theme-toggle {
@@ -103,6 +125,13 @@
             border: 2px solid var(--border-color);
             border-radius: 8px;
             animation: fadeIn 0.5s ease-in;
+            cursor: move;
+            gap: 10px;
+        }
+
+        .todo-item.dragging {
+            opacity: 0.5;
+            transform: scale(0.98);
         }
 
         @keyframes fadeIn {
@@ -115,11 +144,18 @@
             margin: 0 15px;
         }
 
+        .todo-text.completed {
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+
         .priority {
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 0.8rem;
             font-weight: bold;
+            min-width: 70px;
+            text-align: center;
         }
 
         .high { background-color: #ff4444; color: white; }
@@ -135,6 +171,15 @@
             color: var(--text-color);
         }
 
+        .edit-input {
+            flex: 1;
+            padding: 8px;
+            border: 2px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+
         @media (max-width: 600px) {
             .todo-form {
                 flex-direction: column;
@@ -143,21 +188,38 @@
             .add-btn {
                 width: 100%;
             }
+
+            .todo-item {
+                flex-wrap: wrap;
+                padding: 10px;
+            }
+
+            .priority {
+                order: -1;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Smart Todo List</h1>
-            <button class="theme-toggle" id="themeToggle">
+            <h1>Smart Todo List Pro</h1>
+            <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
                 <i class="fas fa-moon"></i>
             </button>
         </div>
 
+        <div class="controls">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="high">High</button>
+            <button class="filter-btn" data-filter="medium">Medium</button>
+            <button class="filter-btn" data-filter="low">Low</button>
+            <button class="filter-btn" id="clearCompleted">Clear Completed</button>
+        </div>
+
         <form class="todo-form" id="todoForm">
-            <input type="text" class="todo-input" id="todoInput" placeholder="Add a new task..." required>
-            <select class="priority-select" id="prioritySelect">
+            <input type="text" class="todo-input" id="todoInput" placeholder="Add a new task..." required aria-label="New task input">
+            <select class="priority-select" id="prioritySelect" aria-label="Task priority">
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
@@ -174,9 +236,13 @@
         const todoList = document.getElementById('todoList');
         const prioritySelect = document.getElementById('prioritySelect');
         const themeToggle = document.getElementById('themeToggle');
+        const filterButtons = document.querySelectorAll('.filter-btn');
+        const clearCompletedBtn = document.getElementById('clearCompleted');
 
         let todos = JSON.parse(localStorage.getItem('todos')) || [];
         let currentTheme = localStorage.getItem('theme') || 'light';
+        let currentFilter = 'all';
+        let dragStartIndex = null;
 
         // Initialize theme
         document.documentElement.setAttribute('data-theme', currentTheme);
@@ -188,25 +254,46 @@
 
         function renderTodos() {
             todoList.innerHTML = '';
-            todos.forEach((todo, index) => {
+            const filteredTodos = todos.filter(todo => {
+                if (currentFilter === 'all') return true;
+                return todo.priority === currentFilter;
+            });
+
+            filteredTodos.forEach((todo, index) => {
                 const li = document.createElement('li');
                 li.className = 'todo-item';
+                li.draggable = true;
+                li.setAttribute('data-index', index);
+                li.setAttribute('aria-label', `Task: ${todo.text}, Priority: ${todo.priority}`);
+
                 li.innerHTML = `
-                    <span class="todo-text">${todo.text}</span>
-                    <span class="priority ${todo.priority}">${todo.priority.toUpperCase()}</span>
-                    <button class="action-btn edit-btn" data-index="${index}">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="action-btn delete-btn" data-index="${index}">
-                        <i class="fas fa-trash"></i>
-                    </button>
+                    ${todo.editing ? `
+                        <input type="text" class="edit-input" value="${todo.text}">
+                        <button class="action-btn save-edit-btn" data-index="${index}">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    ` : `
+                        <span class="todo-text ${todo.completed ? 'completed' : ''}">${todo.text}</span>
+                        <span class="priority ${todo.priority}">${todo.priority.toUpperCase()}</span>
+                        <button class="action-btn edit-btn" data-index="${index}" aria-label="Edit task">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="action-btn delete-btn" data-index="${index}" aria-label="Delete task">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `}
                 `;
+                
                 todoList.appendChild(li);
+            });
+
+            filterButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === currentFilter);
             });
         }
 
         function addTodo(text, priority) {
-            todos.push({ text, priority, completed: false });
+            todos.push({ text, priority, completed: false, editing: false });
             saveTodos();
             renderTodos();
         }
@@ -217,8 +304,40 @@
             renderTodos();
         }
 
-        function editTodo(index, newText) {
-            todos[index].text = newText;
+        function toggleComplete(index) {
+            todos[index].completed = !todos[index].completed;
+            saveTodos();
+            renderTodos();
+        }
+
+        function startEdit(index) {
+            todos[index].editing = true;
+            renderTodos();
+            const input = todoList.querySelector(`[data-index="${index}"] .edit-input`);
+            input.focus();
+        }
+
+        function saveEdit(index, newText) {
+            todos[index].text = newText.trim();
+            todos[index].editing = false;
+            saveTodos();
+            renderTodos();
+        }
+
+        function handleDragStart(e) {
+            dragStartIndex = +e.target.closest('.todo-item').dataset.index;
+            e.target.classList.add('dragging');
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+        }
+
+        function handleDrop(e) {
+            const dragEndIndex = +e.target.closest('.todo-item').dataset.index;
+            const draggedItem = todos[dragStartIndex];
+            todos.splice(dragStartIndex, 1);
+            todos.splice(dragEndIndex, 0, draggedItem);
             saveTodos();
             renderTodos();
         }
@@ -232,18 +351,29 @@
         });
 
         todoList.addEventListener('click', (e) => {
-            if (e.target.classList.contains('delete-btn') || e.target.closest('.delete-btn')) {
-                const index = e.target.closest('.delete-btn').dataset.index;
+            const todoItem = e.target.closest('.todo-item');
+            const index = todoItem?.dataset.index;
+
+            if (e.target.closest('.delete-btn')) {
                 deleteTodo(index);
             }
-            
-            if (e.target.classList.contains('edit-btn') || e.target.closest('.edit-btn')) {
-                const index = e.target.closest('.edit-btn').dataset.index;
-                const newText = prompt('Edit task:', todos[index].text);
-                if (newText !== null) {
-                    editTodo(index, newText.trim());
-                }
+            else if (e.target.closest('.edit-btn')) {
+                startEdit(index);
             }
+            else if (e.target.closest('.save-edit-btn')) {
+                const newText = todoItem.querySelector('.edit-input').value;
+                saveEdit(index, newText);
+            }
+            else if (todoItem) {
+                toggleComplete(index);
+            }
+        });
+
+        todoList.addEventListener('dragstart', handleDragStart);
+        todoList.addEventListener('dragover', handleDragOver);
+        todoList.addEventListener('drop', handleDrop);
+        todoList.addEventListener('dragend', (e) => {
+            e.target.classList.remove('dragging');
         });
 
         themeToggle.addEventListener('click', () => {
@@ -251,6 +381,19 @@
             document.documentElement.setAttribute('data-theme', currentTheme);
             themeToggle.innerHTML = currentTheme === 'dark' ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
             localStorage.setItem('theme', currentTheme);
+        });
+
+        filterButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentFilter = btn.dataset.filter;
+                renderTodos();
+            });
+        });
+
+        clearCompletedBtn.addEventListener('click', () => {
+            todos = todos.filter(todo => !todo.completed);
+            saveTodos();
+            renderTodos();
         });
 
         // Initial render
